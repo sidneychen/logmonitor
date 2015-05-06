@@ -133,7 +133,7 @@ func warn(msg string) {
 	url := "http://service.192.168.94.26.xip.io/service/call"
 	data := `{"pack_type":"json", "data":"{\"service\": \"Api_Warn\", \"method\": \"notice\", \"params\": [\"common\", [\"日志告警: ` + msg + `\"]]}"}`
 	log.Println("Catch an error")
-	return
+	//	return
 	buffer := bytes.NewBufferString(data)
 	resp, err := http.Post(url, "application/json", buffer)
 	checkError(err)
