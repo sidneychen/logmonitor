@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -18,7 +19,7 @@ import (
 )
 
 func main() {
-	// 第二天自动停止
+	// stop self next day
 	stopSelfOnNextDay()
 
 	filenames := os.Args[1:]
@@ -33,16 +34,16 @@ func main() {
 
 		filepaths = append(filepaths, filepath)
 	}
+
 	m := NewMonitor(filepaths)
 	m.Start()
 
-	// 处理中断信号
+	// handle interupt signal
 	ch := make(chan os.Signal)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	log.Printf("Signal: %v\r\n", <-ch)
-	m.Stop()
+	log.Printf("Signal catched: %v\r\n", <-ch)
 
-	log.Println("ssss")
+	m.Stop()
 
 }
 
@@ -58,42 +59,23 @@ func stopSelfOnNextDay() {
 
 type Monitor struct {
 	cmd       *exec.Cmd
-	stopCh    chan bool
-	errMsgCh  chan string
 	filenames []string
-	stopWG    *sync.WaitGroup
+	wg        *sync.WaitGroup
 }
 
 func NewMonitor(filenames []string) *Monitor {
 	m := &Monitor{
-		stopCh:    make(chan bool),
-		errMsgCh:  make(chan string, 1),
 		filenames: filenames,
-		stopWG:    new(sync.WaitGroup),
+		wg:        new(sync.WaitGroup),
 	}
 
 	args := append([]string{"-f"}, filenames...)
 	m.cmd = exec.Command("tail", args...)
-	go m.errorHandleLoop()
 	return m
 }
 
-func (m *Monitor) errorHandleLoop() {
-	m.stopWG.Add(1)
-	defer m.stopWG.Done()
-	for {
-		select {
-		case <-m.stopCh:
-			log.Println("Stop Monitor:errorHandlerLoop gorutine")
-			return
-		case errMsg := <-m.errMsgCh:
-			warn(errMsg)
-		}
-	}
-}
-
 func (m *Monitor) Start() {
-	log.Println("Watching log files:", m.filenames)
+	log.Println("Start Monitoring log files:", m.filenames)
 	stdout, err := m.cmd.StdoutPipe()
 	onErrorExit(err)
 
@@ -101,40 +83,50 @@ func (m *Monitor) Start() {
 	onErrorExit(err)
 
 	go func() {
-
-		m.stopWG.Add(1)
-		defer m.stopWG.Done()
+		m.wg.Add(1)
+		defer func() { m.wg.Done() }()
 		reader := bufio.NewReader(stdout)
 		for {
 			b, _, err := reader.ReadLine()
 			if err == io.EOF {
-				break
+				return
 			}
 			line := string(b)
 			if strings.Contains(line, "ERROR") {
-				m.errMsgCh <- line
+				warn(line)
 			}
 		}
-		log.Println("Stop Monitor:Start gorutine")
 	}()
+
 	err = m.cmd.Wait()
 	onErrorExit(err)
 }
 
 func (m *Monitor) Stop() {
-	m.stopCh <- true
-	//	m.cmd.Process.Signal(syscall.SIGINT)
-
-	m.stopWG.Wait()
-	log.Println("Stop Monitor")
+	m.cmd.Process.Signal(syscall.SIGINT)
+	m.wg.Wait()
 }
 
 func warn(msg string) {
+	log.Println("Catch an error, error:", msg)
 	url := "http://service.192.168.94.26.xip.io/service/call"
-	data := `{"pack_type":"json", "data":"{\"service\": \"Api_Warn\", \"method\": \"notice\", \"params\": [\"common\", [\"日志告警: ` + msg + `\"]]}"}`
-	log.Println("Catch an error")
-	//	return
-	buffer := bytes.NewBufferString(data)
+	param := make(map[string]interface{})
+	param["pack_type"] = "json"
+	data := make(map[string]interface{})
+	data["service"] = "Api_Warn"
+	data["method"] = "notice"
+	params := []string{"common", "日志告警: " + msg}
+	data["params"] = params
+	var err error
+	bData, err := json.Marshal(data)
+	param["data"] = string(bData)
+	checkError(err)
+
+	jsonData, err := json.Marshal(param)
+	checkError(err)
+
+	log.Println("Warning params:", string(jsonData))
+	buffer := bytes.NewBuffer(jsonData)
 	resp, err := http.Post(url, "application/json", buffer)
 	checkError(err)
 	_, err = ioutil.ReadAll(resp.Body)
