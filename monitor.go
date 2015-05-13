@@ -1,9 +1,5 @@
 package main
 
-import (
-	"log"
-)
-
 type Monitor struct {
 	logs []LogWatcher
 
@@ -25,7 +21,6 @@ func (m *Monitor) AddWatcher(w LogWatcher) {
 }
 
 func (m *Monitor) Start() {
-	log.Println("Start Monitoring log files:", m.logs)
 	for _, logfile := range m.logs {
 		go logfile.Watch()
 	}

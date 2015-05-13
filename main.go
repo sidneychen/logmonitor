@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"time"
 
 	_ "syscall"
@@ -12,9 +13,11 @@ import (
 )
 
 var (
-	PHPLogs       = []string{"php_api", "php_guideapi", "php_serviceapi", "php_simulateapi", "php_simulateguideapi", "php_simulateserviceapi"}
-	AccessLogs    = []string{"nginx_access_api", "nginx_access_guideapi", "nginx_access_serviceapi", "nginx_access_simulateapi", "nginx_access_simulateguideapi", "nginx_access_simulateserviceapi"}
-	MysqlSlowLogs = []string{"mysql_slow_api"}
+	Logs = map[reflect.Type][]string{
+		reflect.TypeOf(PHPLog{}):       []string{"php_api", "php_guideapi", "php_serviceapi", "php_simulateapi", "php_simulateguideapi", "php_simulateserviceapi"},
+		reflect.TypeOf(AccessLog{}):    []string{"nginx_access_api", "nginx_access_guideapi", "nginx_access_serviceapi", "nginx_access_simulateapi", "nginx_access_simulateguideapi", "nginx_access_simulateserviceapi"},
+		reflect.TypeOf(MysqlSlowLog{}): []string{"mysql_slow_api"},
+	}
 
 	TailConfig = tail.Config{Follow: true, Location: &tail.SeekInfo{Offset: 0, Whence: os.SEEK_END}}
 )
@@ -26,43 +29,22 @@ func main() {
 	day := t.Format("2006-01-02")
 	m := NewMonitor()
 
-	for _, fn := range PHPLogs {
-		filepath := fmt.Sprintf("/data/logcollection/online/%s/%s/%s_%s.log", month, fn, fn, day)
-		t, err := tail.TailFile(filepath, TailConfig)
-		if err != nil {
-			log.Println(err)
-			continue
+	for logType, logs := range Logs {
+		for _, fn := range logs {
+			filepath := fmt.Sprintf("/data/logcollection/online/%s/%s/%s_%s.log", month, fn, fn, day)
+			t, err := tail.TailFile(filepath, TailConfig)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			v := reflect.ValueOf(*t)
+			w := v.Convert(logType).Interface().(LogWatcher)
+
+			m.AddWatcher(w)
 		}
-		p := PHPLog(*t)
-		m.AddWatcher(&p)
-	}
-	for _, fn := range AccessLogs {
-		filepath := fmt.Sprintf("/data/logcollection/online/%s/%s/%s_%s.log", month, fn, fn, day)
-		t, err := tail.TailFile(filepath, TailConfig)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		p := AccessLog(*t)
-		m.AddWatcher(&p)
-	}
-	for _, fn := range MysqlSlowLogs {
-		filepath := fmt.Sprintf("/data/logcollection/online/%s/%s/%s_%s.log", month, fn, fn, day)
-		t, err := tail.TailFile(filepath, TailConfig)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		p := MysqlSlowLog(*t)
-		m.AddWatcher(&p)
 	}
 
 	m.Start()
-
-	// handle interupt signal
-	//	ch := make(chan os.Signal)
-	//	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	//	log.Printf("Signal catched: %v\r\n", <-ch)
 
 	nextday := t.AddDate(0, 0, 1)
 	nextday, _ = time.ParseInLocation("2006-01-02 (CST)", nextday.Format("2006-01-02 (CST)"), time.Local)

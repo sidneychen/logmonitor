@@ -22,7 +22,8 @@ type LogWatcher interface {
 
 type PHPLog tail.Tail
 
-func (t *PHPLog) Watch() {
+func (t PHPLog) Watch() {
+	log.Println("start watching php log:", t.Filename)
 	for line := range t.Lines {
 		if strings.Contains(line.Text, "ERROR") {
 			Warn(line.Text)
@@ -32,7 +33,8 @@ func (t *PHPLog) Watch() {
 
 type AccessLog tail.Tail
 
-func (t *AccessLog) Watch() {
+func (t AccessLog) Watch() {
+	log.Println("start watching access log:", t.Filename)
 	for line := range t.Lines {
 		elapse := GetElapseTime(line.Text)
 		if elapse > 2 && !strings.Contains(line.Text, "transactions") {
@@ -69,9 +71,10 @@ type SlowLog struct {
 	Found   bool
 }
 
-func (t *MysqlSlowLog) Watch() {
-	var s SlowLog
+func (t MysqlSlowLog) Watch() {
+	log.Println("start watching mysql slow log:", t.Filename)
 
+	var s SlowLog
 	for line := range t.Lines {
 		js, err := simplejson.NewJson([]byte(line.Text))
 		if err != nil {
